@@ -1,37 +1,21 @@
-const axios = require('axios');
-
-// 缓存 access_token 和 ticket，减少请求次数（Vercel 函数无状态，但单次冷启动后可复用）
-let tokenCache = { value: null, expires: 0 };
-let ticketCache = { value: null, expires: 0 };
+// api/wx_config.js
+// 使用 Node.js 内置模块，无需安装任何第三方依赖
 
 async function getAccessToken(appid, secret) {
-  if (tokenCache.value && Date.now() < tokenCache.expires) {
-    return tokenCache.value;
-  }
   const url = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appid}&secret=${secret}`;
-  const { data } = await axios.get(url);
-  tokenCache.value = data.access_token;
-  tokenCache.expires = Date.now() + 7200 * 1000 - 300; // 提前5分钟过期
+  const res = await fetch(url);
+  const data = await res.json();
   return data.access_token;
 }
 
 async function getJsapiTicket(accessToken) {
-  if (ticketCache.value && Date.now() < ticketCache.expires) {
-    return ticketCache.value;
-  }
   const url = `https://api.weixin.qq.com/cgi-bin/ticket/getticket?access_token=${accessToken}&type=jsapi`;
-  const { data } = await axios.get(url);
-  ticketCache.value = data.ticket;
-  ticketCache.expires = Date.now() + 7200 * 1000 - 300;
+  const res = await fetch(url);
+  const data = await res.json();
   return data.ticket;
 }
 
-function generateSignature(ticket, noncestr, timestamp, url) {
-  const str = `jsapi_ticket=${ticket}&noncestr=${noncestr}&timestamp=${timestamp}&url=${url}`;
-  return require('crypto').createHash('sha1').update(str).digest('hex');
-}
-
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   const { url } = req.query;
   if (!url) {
     return res.status(400).json({ error: 'missing url' });
@@ -45,9 +29,16 @@ module.exports = async (req, res) => {
     const ticket = await getJsapiTicket(token);
     const noncestr = Math.random().toString(36).substr(2, 15);
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateSignature(ticket, noncestr, timestamp, url);
-    res.json({ appId: appid, timestamp, nonceStr: noncestr, signature });
+    const str = `jsapi_ticket=${ticket}&noncestr=${noncestr}&timestamp=${timestamp}&url=${url}`;
+    const signature = require('crypto').createHash('sha1').update(str).digest('hex');
+
+    return res.json({
+      appId: appid,
+      timestamp,
+      nonceStr: noncestr,
+      signature
+    });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
   }
-};
+}
