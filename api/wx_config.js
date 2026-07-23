@@ -1,46 +1,52 @@
-// api/wx_config.js
 export default async function handler(req, res) {
-  let { url } = req.query;
-  if (!url) {
-    return res.status(400).json({ error: 'missing url' });
-  }
-
-  url = url.replace(/\/$/, '');  // 去除末尾斜杠
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'missing url' });
 
   const appid = process.env.WX_APPID;
   const secret = process.env.WX_SECRET;
 
   try {
-    // 获取 access_token
-    const tokenRes = await fetch(
-      `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appid}&secret=${secret}`
-    );
+    // 1. 获取 access_token
+    const tokenUrl = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appid}&secret=${secret}`;
+    const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
+    if (tokenData.errcode) {
+      return res.status(500).json({ error: '获取token失败', detail: tokenData });
+    }
     const access_token = tokenData.access_token;
 
-    // 获取 jsapi_ticket
-    const ticketRes = await fetch(
-      `https://api.weixin.qq.com/cgi-bin/ticket/getticket?access_token=${access_token}&type=jsapi`
-    );
+    // 2. 获取 jsapi_ticket
+    const ticketUrl = `https://api.weixin.qq.com/cgi-bin/ticket/getticket?access_token=${access_token}&type=jsapi`;
+    const ticketRes = await fetch(ticketUrl);
     const ticketData = await ticketRes.json();
+    if (ticketData.errcode !== 0) {
+      return res.status(500).json({ error: '获取ticket失败', detail: ticketData });
+    }
     const ticket = ticketData.ticket;
 
-    // 生成签名
+    // 3. 生成签名
     const noncestr = Math.random().toString(36).substr(2, 15);
     const timestamp = Math.floor(Date.now() / 1000);
-    const string = `jsapi_ticket=${ticket}&noncestr=${noncestr}&timestamp=${timestamp}&url=${url}`;
+    const signStr = `jsapi_ticket=${ticket}&noncestr=${noncestr}&timestamp=${timestamp}&url=${url}`;
     const crypto = require('crypto');
-    const signature = crypto.createHash('sha1').update(string).digest('hex');
+    const signature = crypto.createHash('sha1').update(signStr).digest('hex');
 
-    // 返回结果（包含 ticket 用于调试）
+    // 4. 返回所有调试信息（正式使用时可删掉 detail 部分）
     return res.json({
       appId: appid,
       timestamp,
       nonceStr: noncestr,
       signature,
-      ticket: ticket      // <-- 加了这一行
+      ticket,
+      // 以下为调试信息，确认无误后可移除
+      debug: {
+        access_token,
+        ticket_original: ticket,
+        sign_string: signStr,
+        url_used: url
+      }
     });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message, stack: e.stack });
   }
 }
