@@ -26,20 +26,35 @@
         const btn = document.getElementById('selectBtn');
 
         // 获取签名配置并初始化微信 SDK
-        async function initWx() {
-            const url = window.location.href.split('#')[0];
-            try {
-                const url = window.location.href.split('#')[0].replace(/\/$/, '');
-                const resp = await fetch(`/api/wx_config?url=${encodeURIComponent(url)}`);
-                const cfg = await resp.json();
-                wx.config({
-                    debug: false,
-                    appId: cfg.appId,
-                    timestamp: cfg.timestamp,
-                    nonceStr: cfg.nonceStr,
-                    signature: cfg.signature,
-                    jsApiList: ['chooseMessageFile', 'getLocalFileData']
-                });
+     async function initWx() {
+    // 固定使用根域名，去除一切可能引起差异的参数和斜杠
+    const signUrl = 'https://wbpdf.vercel.app';
+    
+    try {
+        const resp = await fetch(`/api/wx_config?url=${encodeURIComponent(signUrl)}`);
+        const cfg = await resp.json();
+        
+        wx.config({
+            debug: false,   // 改为 true 可以看到详细的微信校验弹窗
+            appId: cfg.appId,
+            timestamp: cfg.timestamp,
+            nonceStr: cfg.nonceStr,
+            signature: cfg.signature,
+            jsApiList: ['chooseMessageFile', 'getLocalFileData']
+        });
+        
+        wx.ready(() => {
+            btn.disabled = false;
+            msgDiv.innerText = '准备就绪';
+        });
+        
+        wx.error(err => {
+            msgDiv.innerText = '初始化失败: ' + JSON.stringify(err);
+        });
+    } catch (e) {
+        msgDiv.innerText = '签名接口错误: ' + e.message;
+    }
+}
                wx.ready(function() {
     alert('SDK 就绪！即将启用按钮');
     btn.disabled = false;
