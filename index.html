@@ -2,13 +2,13 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Word 转 PDF</title>
-    <!-- 微信 JS-SDK -->
+    <!-- 微信 JS-SDK（仅在微信内有效） -->
     <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-    <!-- 转换库（离线也可以用本地文件，这里先引用在线 CDN，也可以改成你本地的 mammoth 和 html2pdf） -->
-    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
+    <!-- 转换库 -->
+    <script src="mammoth.browser.min.js"></script>
+    <script src="html2pdf.bundle.min.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; text-align: center; padding: 20px; }
         .btn { background: #07c160; color: white; padding: 14px 30px; border-radius: 10px; font-size: 18px; border: none; }
@@ -16,101 +16,30 @@
     </style>
 </head>
 <body>
-    <h3>📄 微信 Word 转 PDF</h3>
-    <p>点击下方按钮，选择聊天中的 .docx 文件</p>
-    <button class="btn" id="selectBtn" disabled>选择聊天文件</button>
+    <h3>📄 Word 转 PDF</h3>
+    <p id="tip">点击下方按钮选择 .docx 文件</p>
+    <input type="file" id="fileInput" accept=".docx" style="display:none">
+    <button class="btn" id="selectBtn">选择 Word 文件</button>
     <div id="msg"></div>
 
     <script>
-        const msgDiv = document.getElementById('msg');
         const btn = document.getElementById('selectBtn');
+        const msgDiv = document.getElementById('msg');
+        const tip = document.getElementById('tip');
+        const fileInput = document.getElementById('fileInput');
 
-        // 获取签名配置并初始化微信 SDK
-     async function initWx() {
-    // 固定使用根域名，去除一切可能引起差异的参数和斜杠
-    const signUrl = 'https://wbpdf.vercel.app';
-    
-    try {
-        const resp = await fetch(`/api/wx_config?url=${encodeURIComponent(signUrl)}`);
-        const cfg = await resp.json();
-        
-        wx.config({
-            debug: false,   // 改为 true 可以看到详细的微信校验弹窗
-            appId: cfg.appId,
-            timestamp: cfg.timestamp,
-            nonceStr: cfg.nonceStr,
-            signature: cfg.signature,
-            jsApiList: ['chooseMessageFile', 'getLocalFileData']
-        });
-        
-        wx.ready(() => {
-            btn.disabled = false;
-            msgDiv.innerText = '准备就绪';
-        });
-        
-        wx.error(err => {
-            msgDiv.innerText = '初始化失败: ' + JSON.stringify(err);
-        });
-    } catch (e) {
-        msgDiv.innerText = '签名接口错误: ' + e.message;
-    }
-}
-               wx.ready(function() {
-    alert('SDK 就绪！即将启用按钮');
-    btn.disabled = false;
-    msgDiv.innerText = '准备就绪';
-});
+        // 判断是否在微信中
+        const isWechat = /MicroMessenger/i.test(navigator.userAgent);
 
-wx.error(function(err) {
-    alert('微信 SDK 错误: ' + JSON.stringify(err));
-    msgDiv.innerText = '微信接口初始化失败: ' + JSON.stringify(err);
-});
-            } catch (e) {
-                msgDiv.innerText = '签名获取失败: ' + e.message;
-            }
-        }
-
-        // 按钮点击：选择聊天文件
-        btn.addEventListener('click', () => {
-            wx.chooseMessageFile({
-                count: 1,
-                type: 'file',
-                extension: ['docx'],
-                success: res => {
-                    const localId = res.tempFiles[0].localId;
-                    msgDiv.innerText = '正在读取文件...';
-                    wx.getLocalFileData({
-                        localId: localId,
-                        success: res => {
-                            const base64 = res.localData;
-                            // 去掉 data:...base64, 前缀（如果有的话）
-                            const b64 = base64.includes('base64,') ? base64.split('base64,')[1] : base64;
-                            convertAndDownload(b64);
-                        },
-                        fail: err => { msgDiv.innerText = '读取文件失败: ' + JSON.stringify(err); }
-                    });
-                },
-                fail: err => { msgDiv.innerText = '选择文件失败: ' + JSON.stringify(err); }
-            });
-        });
-
-        // 将 base64 转为 ArrayBuffer，然后用 mammoth 和 html2pdf 转换
-        async function convertAndDownload(base64) {
+        // 核心转换函数（接收 File 对象或 base64 数据）
+        async function convertFile(file) {
+            msgDiv.innerText = '正在转换...';
             try {
-                msgDiv.innerText = '正在转换...';
-                const binaryStr = atob(base64);
-                const bytes = new Uint8Array(binaryStr.length);
-                for (let i = 0; i < binaryStr.length; i++) {
-                    bytes[i] = binaryStr.charCodeAt(i);
-                }
-                const arrayBuffer = bytes.buffer;
-
-                // docx -> html
+                const arrayBuffer = await file.arrayBuffer();
                 const result = await mammoth.convertToHtml({ arrayBuffer });
                 const html = result.value;
                 if (!html.trim()) { msgDiv.innerText = '文档内容为空'; return; }
 
-                // 创建临时元素用于导出 PDF
                 const div = document.createElement('div');
                 div.innerHTML = html;
                 div.style.position = 'absolute';
@@ -120,23 +49,92 @@ wx.error(function(err) {
                 document.body.appendChild(div);
 
                 const opt = {
-                    margin: [10, 10, 10, 10],
-                    filename: 'document.pdf',
+                    margin: [10,10,10,10],
+                    filename: file.name.replace(/\.docx$/i,'') + '.pdf',
                     image: { type: 'jpeg', quality: 0.95 },
                     html2canvas: { scale: 2, useCORS: true },
                     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
                 };
-
                 await html2pdf().set(opt).from(div).save();
                 document.body.removeChild(div);
                 msgDiv.innerText = '✅ PDF 已生成并下载！';
             } catch (err) {
-                msgDiv.innerText = '转换失败: ' + err.message;
+                msgDiv.innerText = '转换失败：' + err.message;
             }
         }
 
-        // 页面加载时初始化
-        initWx();
+        // 处理普通文件选择
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) await convertFile(file);
+        });
+
+        // 微信专用：选择聊天文件
+        function chooseWechatFile() {
+            wx.chooseMessageFile({
+                count: 1,
+                type: 'file',
+                extension: ['docx'],
+                success: res => {
+                    const localId = res.tempFiles[0].localId;
+                    msgDiv.innerText = '正在读取文件...';
+                    wx.getLocalFileData({
+                        localId: localId,
+                        success: async (res) => {
+                            const base64 = res.localData;
+                            const b64 = base64.includes('base64,') ? base64.split('base64,')[1] : base64;
+                            const blob = b64toBlob(b64, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+                            await convertFile(new File([blob], 'document.docx', { type: blob.type }));
+                        },
+                        fail: err => { msgDiv.innerText = '读取失败: '+JSON.stringify(err); }
+                    });
+                },
+                fail: err => { msgDiv.innerText = '选择失败: '+JSON.stringify(err); }
+            });
+        }
+
+        function b64toBlob(b64, type) {
+            const bin = atob(b64);
+            const u8 = new Uint8Array(bin.length);
+            for(let i=0; i<bin.length; i++) u8[i] = bin.charCodeAt(i);
+            return new Blob([u8], {type});
+        }
+
+        // 主逻辑
+        if (isWechat) {
+            // 尝试初始化微信 SDK
+            const signUrl = window.location.href.split('#')[0].replace(/\/$/, '');
+            fetch('/api/wx_config?url=' + encodeURIComponent(signUrl))
+                .then(r => r.json())
+                .then(cfg => {
+                    wx.config({
+                        debug: false,
+                        appId: cfg.appId,
+                        timestamp: cfg.timestamp,
+                        nonceStr: cfg.nonceStr,
+                        signature: cfg.signature,
+                        jsApiList: ['chooseMessageFile', 'getLocalFileData']
+                    });
+                    wx.ready(() => {
+                        tip.innerText = '点击按钮直接从聊天记录选择文件';
+                        btn.onclick = chooseWechatFile;
+                    });
+                    wx.error(err => {
+                        console.error('微信 SDK 失败', err);
+                        // 降级为普通文件选择
+                        tip.innerText = '（聊天文件需先保存到手机，再选择）';
+                        btn.onclick = () => fileInput.click();
+                    });
+                })
+                .catch(() => {
+                    tip.innerText = '（聊天文件需先保存到手机，再选择）';
+                    btn.onclick = () => fileInput.click();
+                });
+        } else {
+            // 非微信环境，直接使用文件选择器
+            tip.innerText = '选择手机中的 .docx 文件（可将聊天文件保存到手机后再选）';
+            btn.onclick = () => fileInput.click();
+        }
     </script>
 </body>
 </html>
