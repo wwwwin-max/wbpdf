@@ -4,15 +4,39 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Word 转 PDF</title>
-    <!-- 微信 JS-SDK（仅微信内有效） -->
     <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-    <!-- 转换库 -->
     <script src="mammoth.browser.min.js"></script>
     <script src="html2pdf.bundle.min.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; padding: 20px; background: #f5f5f5; }
-        .btn { background: #07c160; color: white; padding: 14px 30px; border-radius: 10px; font-size: 18px; border: none; }
-        #msg { margin-top: 20px; color: #555; }
+        body {
+            font-family: -apple-system, sans-serif;
+            text-align: center;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+        .btn {
+            background: #007aff;
+            color: white;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-size: 16px;
+            border: none;
+            margin: 5px;
+        }
+        #msg { margin: 15px 0; color: #333; font-size: 14px; }
+        #preview-box {
+            margin: 15px auto;
+            max-width: 100%;
+            text-align: left;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: none;
+            overflow: auto;
+            max-height: 50vh;
+        }
+        #preview-box img { max-width: 100%; height: auto; }
     </style>
 </head>
 <body>
@@ -21,23 +45,29 @@
     <input type="file" id="fileInput" accept=".docx" style="display:none">
     <button class="btn" id="selectBtn">选择 Word 文件</button>
     <div id="msg"></div>
+    <div id="preview-box"></div>
+    <button class="btn" id="downloadBtn" style="display:none;">⬇️ 下载 PDF</button>
 
     <script>
         const btn = document.getElementById('selectBtn');
         const msgDiv = document.getElementById('msg');
         const tip = document.getElementById('tip');
         const fileInput = document.getElementById('fileInput');
+        const previewBox = document.getElementById('preview-box');
+        const downloadBtn = document.getElementById('downloadBtn');
 
         const isWechat = /MicroMessenger/i.test(navigator.userAgent);
+        let currentFileName = 'document.docx';
+        let currentHtml = '';
 
-        // 核心转换函数（修复版）
-        async function convertFile(file) {
-            msgDiv.innerText = '正在转换...';
+        // 核心转换函数：docx → HTML 预览
+        async function convertToPreview(file) {
+            msgDiv.innerText = '正在读取文件...';
+            currentFileName = file.name;
             try {
                 const arrayBuffer = await file.arrayBuffer();
-                // 转换 docx 为 HTML，并配置图片内联
                 const result = await mammoth.convertToHtml(
-                    { arrayBuffer: arrayBuffer },
+                    { arrayBuffer },
                     {
                         convertImage: mammoth.images.imgElement(function(image) {
                             return image.read("base64").then(function(buffer) {
@@ -48,69 +78,53 @@
                         })
                     }
                 );
-                let html = result.value;
+                const html = result.value;
                 if (!html.trim()) {
                     msgDiv.innerText = '文档内容为空，无法转换。';
                     return;
                 }
-
-                // 嵌入基本样式，确保 PDF 中文字可读
-                html = `
-                    <div style="font-family: 'SimSun', 'Songti SC', serif; font-size: 12pt; line-height: 1.6; color: #000; padding: 20px; max-width: 100%; box-sizing: border-box;">
-                        ${html}
-                    </div>
-                `;
-
-                // 创建一个全屏容器（不隐藏），让 html2canvas 能正确渲染
-                // 但我们需要导出整个容器到 PDF，所以创建一个覆盖层
-                const wrapper = document.createElement('div');
-                wrapper.style.position = 'fixed';
-                wrapper.style.top = '0';
-                wrapper.style.left = '0';
-                wrapper.style.width = '100%';
-                wrapper.style.height = '100%';
-                wrapper.style.zIndex = '9999';
-                wrapper.style.backgroundColor = 'white';
-                wrapper.style.overflow = 'auto';
-                wrapper.innerHTML = html;
-                document.body.appendChild(wrapper);
-
-                // 短暂延迟确保渲染
-                await new Promise(resolve => setTimeout(resolve, 300));
-
-                // 配置 html2pdf 选项
-                const opt = {
-                    margin: [10, 10, 10, 10],
-                    filename: file.name.replace(/\.docx$/i, '') + '.pdf',
-                    image: { type: 'jpeg', quality: 0.95 },
-                    html2canvas: {
-                        scale: 2,
-                        useCORS: true,
-                        logging: false,
-                        windowWidth: wrapper.scrollWidth,
-                        windowHeight: wrapper.scrollHeight
-                    },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                };
-
-                await html2pdf().set(opt).from(wrapper).save();
-
-                // 清理
-                document.body.removeChild(wrapper);
-                msgDiv.innerText = '✅ PDF 已生成并下载！';
+                // 嵌入基础样式
+                currentHtml = `<div style="font-family: 'Songti SC', 'SimSun', serif; font-size: 12pt; line-height: 1.8; color: #000; word-wrap: break-word;">${html}</div>`;
+                previewBox.innerHTML = currentHtml;
+                previewBox.style.display = 'block';
+                downloadBtn.style.display = 'inline-block';
+                msgDiv.innerText = '预览如下，点击下载 PDF 按钮保存。';
             } catch (err) {
                 console.error(err);
                 msgDiv.innerText = '转换失败：' + err.message;
             }
         }
 
-        // 文件输入
+        // 下载 PDF（直接从可见预览区导出）
+        async function downloadPDF() {
+            if (!previewBox.innerHTML) return;
+            msgDiv.innerText = '正在生成 PDF...';
+            // 隐藏下载按钮，避免被截图
+            downloadBtn.style.display = 'none';
+            try {
+                const opt = {
+                    margin: [10, 10, 10, 10],
+                    filename: currentFileName.replace(/\.docx$/i, '') + '.pdf',
+                    image: { type: 'jpeg', quality: 0.95 },
+                    html2canvas: { scale: 2, useCORS: true, logging: false },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+                await html2pdf().set(opt).from(previewBox).save();
+                msgDiv.innerText = '✅ PDF 已下载！';
+            } catch (e) {
+                msgDiv.innerText = '下载失败，请尝试截图或使用浏览器打印。';
+            } finally {
+                downloadBtn.style.display = 'inline-block';
+            }
+        }
+
+        // 普通文件选择
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
-            if (file) convertFile(file);
+            if (file) convertToPreview(file);
         });
 
-        // 微信专用函数
+        // 微信专用
         function chooseWechatFile() {
             wx.chooseMessageFile({
                 count: 1,
@@ -125,7 +139,7 @@
                             const base64 = res.localData;
                             const b64 = base64.includes('base64,') ? base64.split('base64,')[1] : base64;
                             const blob = b64toBlob(b64, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-                            convertFile(new File([blob], 'document.docx', { type: blob.type }));
+                            convertToPreview(new File([blob], 'document.docx', { type: blob.type }));
                         },
                         fail: err => { msgDiv.innerText = '读取失败: '+JSON.stringify(err); }
                     });
@@ -141,7 +155,7 @@
             return new Blob([u8], {type});
         }
 
-        // 环境判断（微信 or 普通浏览器）
+        // 环境判断
         if (isWechat) {
             const signUrl = window.location.href.split('#')[0].replace(/\/$/, '');
             fetch('/api/wx_config?url=' + encodeURIComponent(signUrl))
@@ -169,9 +183,12 @@
                     btn.onclick = () => fileInput.click();
                 });
         } else {
-            tip.innerText = '选择手机中的 .docx 文件（先保存聊天文件到手机）';
+            tip.innerText = '选择手机中的 .docx 文件（可先保存聊天文件）';
             btn.onclick = () => fileInput.click();
         }
+
+        // 下载按钮事件
+        downloadBtn.addEventListener('click', downloadPDF);
     </script>
 </body>
 </html>
