@@ -29,6 +29,7 @@
         async function initWx() {
             const url = window.location.href.split('#')[0];
             try {
+                const url = window.location.href.split('#')[0].replace(/\/$/, '');
                 const resp = await fetch(`/api/wx_config?url=${encodeURIComponent(url)}`);
                 const cfg = await resp.json();
                 wx.config({
