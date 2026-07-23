@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/wx_config.js": {
+      "memory": 128,
+      "maxDuration": 10
+    }
+  }
+}
