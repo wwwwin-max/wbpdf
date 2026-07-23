@@ -37,7 +37,8 @@ export default async function handler(req, res) {
       appId: appid,
       timestamp,
       nonceStr: noncestr,
-      signature
+      signature,
+      ticket: ticket      // 临时增加这一行
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });
