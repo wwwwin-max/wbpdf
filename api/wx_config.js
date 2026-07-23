@@ -5,9 +5,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'missing url' });
   }
 
-  // 规范化 URL：去掉末尾的斜杠，因为微信签名要求一致
-  url = url.replace(/\/$/, '');
-  
+  url = url.replace(/\/$/, '');  // 去除末尾斜杠
+
   const appid = process.env.WX_APPID;
   const secret = process.env.WX_SECRET;
 
@@ -33,12 +32,13 @@ export default async function handler(req, res) {
     const crypto = require('crypto');
     const signature = crypto.createHash('sha1').update(string).digest('hex');
 
+    // 返回结果（包含 ticket 用于调试）
     return res.json({
       appId: appid,
       timestamp,
       nonceStr: noncestr,
       signature,
-      ticket: ticket      // 临时增加这一行
+      ticket: ticket      // <-- 加了这一行
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });
