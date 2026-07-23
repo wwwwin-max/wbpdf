@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=1.0">
+    <title>Word 转 PDF</title>
+    <!-- 微信 JS-SDK -->
+    <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+    <!-- 转换库（离线也可以用本地文件，这里先引用在线 CDN，也可以改成你本地的 mammoth 和 html2pdf） -->
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; text-align: center; padding: 20px; }
+        .btn { background: #07c160; color: white; padding: 14px 30px; border-radius: 10px; font-size: 18px; border: none; }
+        #msg { margin-top: 20px; color: #555; }
+    </style>
+</head>
+<body>
+    <h3>📄 微信 Word 转 PDF</h3>
+    <p>点击下方按钮，选择聊天中的 .docx 文件</p>
+    <button class="btn" id="selectBtn" disabled>选择聊天文件</button>
+    <div id="msg"></div>
+
+    <script>
+        const msgDiv = document.getElementById('msg');
+        const btn = document.getElementById('selectBtn');
+
+        // 获取签名配置并初始化微信 SDK
+        async function initWx() {
+            const url = window.location.href.split('#')[0];
+            try {
+                const resp = await fetch(`/api/wx_config?url=${encodeURIComponent(url)}`);
+                const cfg = await resp.json();
+                wx.config({
+                    debug: false,
+                    appId: cfg.appId,
+                    timestamp: cfg.timestamp,
+                    nonceStr: cfg.nonceStr,
+                    signature: cfg.signature,
+                    jsApiList: ['chooseMessageFile', 'getLocalFileData']
+                });
+                wx.ready(() => {
+                    btn.disabled = false;
+                    msgDiv.innerText = '准备就绪';
+                });
+                wx.error(err => {
+                    msgDiv.innerText = '微信接口初始化失败: ' + JSON.stringify(err);
+                });
+            } catch (e) {
+                msgDiv.innerText = '签名获取失败: ' + e.message;
+            }
+        }
+
+        // 按钮点击：选择聊天文件
+        btn.addEventListener('click', () => {
+            wx.chooseMessageFile({
+                count: 1,
+                type: 'file',
+                extension: ['docx'],
+                success: res => {
+                    const localId = res.tempFiles[0].localId;
+                    msgDiv.innerText = '正在读取文件...';
+                    wx.getLocalFileData({
+                        localId: localId,
+                        success: res => {
+                            const base64 = res.localData;
+                            // 去掉 data:...base64, 前缀（如果有的话）
+                            const b64 = base64.includes('base64,') ? base64.split('base64,')[1] : base64;
+                            convertAndDownload(b64);
+                        },
+                        fail: err => { msgDiv.innerText = '读取文件失败: ' + JSON.stringify(err); }
+                    });
+                },
+                fail: err => { msgDiv.innerText = '选择文件失败: ' + JSON.stringify(err); }
+            });
+        });
+
+        // 将 base64 转为 ArrayBuffer，然后用 mammoth 和 html2pdf 转换
+        async function convertAndDownload(base64) {
+            try {
+                msgDiv.innerText = '正在转换...';
+                const binaryStr = atob(base64);
+                const bytes = new Uint8Array(binaryStr.length);
+                for (let i = 0; i < binaryStr.length; i++) {
+                    bytes[i] = binaryStr.charCodeAt(i);
+                }
+                const arrayBuffer = bytes.buffer;
+
+                // docx -> html
+                const result = await mammoth.convertToHtml({ arrayBuffer });
+                const html = result.value;
+                if (!html.trim()) { msgDiv.innerText = '文档内容为空'; return; }
+
+                // 创建临时元素用于导出 PDF
+                const div = document.createElement('div');
+                div.innerHTML = html;
+                div.style.position = 'absolute';
+                div.style.left = '-9999px';
+                div.style.top = '0';
+                div.style.width = '210mm';
+                document.body.appendChild(div);
+
+                const opt = {
+                    margin: [10, 10, 10, 10],
+                    filename: 'document.pdf',
+                    image: { type: 'jpeg', quality: 0.95 },
+                    html2canvas: { scale: 2, useCORS: true },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                await html2pdf().set(opt).from(div).save();
+                document.body.removeChild(div);
+                msgDiv.innerText = '✅ PDF 已生成并下载！';
+            } catch (err) {
+                msgDiv.innerText = '转换失败: ' + err.message;
+            }
+        }
+
+        // 页面加载时初始化
+        initWx();
+    </script>
+</body>
+</html>
