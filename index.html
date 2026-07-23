@@ -39,13 +39,16 @@
                     signature: cfg.signature,
                     jsApiList: ['chooseMessageFile', 'getLocalFileData']
                 });
-                wx.ready(() => {
-                    btn.disabled = false;
-                    msgDiv.innerText = '准备就绪';
-                });
-                wx.error(err => {
-                    msgDiv.innerText = '微信接口初始化失败: ' + JSON.stringify(err);
-                });
+               wx.ready(function() {
+    alert('SDK 就绪！即将启用按钮');
+    btn.disabled = false;
+    msgDiv.innerText = '准备就绪';
+});
+
+wx.error(function(err) {
+    alert('微信 SDK 错误: ' + JSON.stringify(err));
+    msgDiv.innerText = '微信接口初始化失败: ' + JSON.stringify(err);
+});
             } catch (e) {
                 msgDiv.innerText = '签名获取失败: ' + e.message;
             }
